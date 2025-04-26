@@ -34,21 +34,26 @@
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
+              #  xorg.libXcursor
+              #  xorg.libXi
+              #  xorg.libXinerama
+              #  xorg.libXrandr
+              #  xorg.xinput
               rustToolchain
               SDL2
             ];
 
-            LD_LIBRARY_PATH =
-              with pkgs;
-              lib.makeLibraryPath [
-                libGL
-                libxkbcommon
-                wayland
-                xorg.libX11
-                xorg.libXcursor
-                xorg.libXi
-                xorg.libXrandr
-              ];
+            #LD_LIBRARY_PATH =
+            #  with pkgs;
+            #  lib.makeLibraryPath [
+            #    libGL
+            #    libxkbcommon
+            #    wayland
+            #    xorg.libX11
+            #    xorg.libXcursor
+            #    xorg.libXi
+            #    xorg.libXrandr
+            #  ];
           };
         }
       );

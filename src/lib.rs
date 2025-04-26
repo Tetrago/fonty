@@ -1,17 +1,17 @@
-use half::f16;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
+use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::prelude::*;
 use std::path::Path;
 
 macro_rules! flag {
-    ({ $($variant:ident),* $(,)? } => ($name:ident, $alias:ident): $repr:ty) => {
+    ({ $($variant:ident),+ $(,)? } => ($name:ident, $alias:ident): $repr:ty) => {
         #[allow(dead_code)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         enum $name {
-            $($variant),*
+            $($variant),+
         }
 
         #[allow(dead_code)]
@@ -41,12 +41,6 @@ macro_rules! read {
             result
         })()
     };
-    ($reader:expr => f16) => {{
-        let mut buf = [0u8; 2];
-        $reader
-            .read_exact(&mut buf)
-            .map(|_| f16::from_bits(u16::from_be_bytes(buf)))
-    }};
     ($reader:expr => $type:ty) => {{
         let mut buf = [0u8; std::mem::size_of::<$type>()];
         $reader
@@ -81,45 +75,60 @@ flag!({
 } => (ComponentFlag, ComponentFlags): u16);
 
 #[derive(Clone, Debug)]
+pub struct Head {
+    index_to_loc_format: i16,
+}
+
+impl Head {
+    fn read_from<R: Read + Seek>(reader: &mut R) -> io::Result<Self> {
+        reader.seek_relative(46)?;
+
+        Ok(Self {
+            index_to_loc_format: read!(reader => i16)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Component {
     pub flags: ComponentFlags,
     pub index: u16,
     pub offset: (i32, i32),
-    pub transform: (f16, f16, f16, f16),
+    pub transform: (i16, i16, i16, i16),
 }
 
 #[derive(Clone, Debug)]
 pub enum Glyph {
     Simple {
-        min: (f16, f16),
-        max: (f16, f16),
-        indices: Vec<u16>,
+        min: (i16, i16),
+        max: (i16, i16),
+        end_points: Vec<u16>,
         points: Vec<(i16, i16, OutlineFlags)>,
     },
     Compound {
-        min: (f16, f16),
-        max: (f16, f16),
+        min: (i16, i16),
+        max: (i16, i16),
         components: Vec<Component>,
     },
 }
 
 impl Glyph {
-    fn read_simple_from<R: Read>(
+    fn read_simple_from<R: Read + Seek>(
         reader: &mut R,
         contours: i16,
-        min: (f16, f16),
-        max: (f16, f16),
+        min: (i16, i16),
+        max: (i16, i16),
     ) -> io::Result<Self> {
-        let mut indices = Vec::<u16>::new();
-        let mut vertex_count = 0usize;
+        let mut end_points = Vec::<u16>::with_capacity(contours as usize);
 
         for _ in 0..contours {
-            let index = read!(reader => u16)?;
-            vertex_count = vertex_count.max(index as usize + 1);
-
-            indices.push(index);
+            end_points.push(read!(reader => u16)?);
         }
 
+        let instruction_count = read!(reader => u16)?;
+        reader.seek_relative(instruction_count as i64)?;
+
+        let vertex_count = end_points.last().cloned().unwrap_or(0) as usize + 1;
         let mut points = Vec::<(i16, i16, OutlineFlags)>::with_capacity(vertex_count);
 
         while points.len() < vertex_count {
@@ -135,34 +144,64 @@ impl Glyph {
             }
         }
 
+        let mut x_pos = 0i16;
+
         for (x, _, flags) in points.iter_mut() {
-            if OutlineFlag::XshortVector.test(*flags) {
-                *x = read!(reader => u8)? as i16;
+            let delta = if OutlineFlag::XshortVector.test(*flags) {
+                let value = read!(reader => u8)? as i16;
+
+                if OutlineFlag::XSame.test(*flags) {
+                    value
+                } else {
+                    -value
+                }
             } else {
-                *x = read!(reader => i16)?;
-            }
+                if OutlineFlag::XSame.test(*flags) {
+                    0
+                } else {
+                    read!(reader => i16)?
+                }
+            };
+
+            x_pos += delta;
+            *x = x_pos;
         }
 
+        let mut y_pos = 0i16;
+
         for (_, y, flags) in points.iter_mut() {
-            if OutlineFlag::YshortVector.test(*flags) {
-                *y = read!(reader => u8)? as i16;
+            let delta = if OutlineFlag::YshortVector.test(*flags) {
+                let value = read!(reader => u8)? as i16;
+
+                if OutlineFlag::YSame.test(*flags) {
+                    value
+                } else {
+                    -value
+                }
             } else {
-                *y = read!(reader => i16)?;
-            }
+                if OutlineFlag::YSame.test(*flags) {
+                    0
+                } else {
+                    read!(reader => i16)?
+                }
+            };
+
+            y_pos += delta;
+            *y = y_pos;
         }
 
         Ok(Glyph::Simple {
             min,
             max,
-            indices,
+            end_points,
             points,
         })
     }
 
-    fn read_compound_from<R: Read>(
+    fn read_compound_from<R: Read + Seek>(
         reader: &mut R,
-        min: (f16, f16),
-        max: (f16, f16),
+        min: (i16, i16),
+        max: (i16, i16),
     ) -> io::Result<Self> {
         let mut flags = ComponentFlag::MoreComponents.mask();
         let mut components = Vec::<Component>::new();
@@ -189,8 +228,22 @@ impl Glyph {
                     (x as i32, y as i32)
                 }
             };
+            let transform = if ComponentFlag::WeHaveATwoByTwo.test(flags) {
+                read!(reader => (i16, i16, i16, i16))?
+            } else if ComponentFlag::WeHaveAnXAndYScale.test(flags) {
+                let (a, b) = read!(reader => (i16, i16))?;
+                (a, 0, 0, b)
+            } else if ComponentFlag::WeHaveAScale.test(flags) {
+                let scale = read!(reader => i16)?;
+                (scale, 0, 0, scale)
+            } else {
+                (1, 0, 0, 1)
+            };
 
-            let transform = read!(reader => (f16, f16, f16, f16))?;
+            if ComponentFlag::WeHaveInstructions.test(flags) {
+                let instructions = read!(reader => u16)?;
+                reader.seek_relative(instructions as i64)?;
+            }
 
             components.push(Component {
                 flags,
@@ -207,10 +260,10 @@ impl Glyph {
         })
     }
 
-    pub fn read_from<R: Read>(reader: &mut R) -> io::Result<Self> {
+    pub fn read_from<R: Read + Seek>(reader: &mut R) -> io::Result<Self> {
         let contours = read!(reader => i16)?;
-        let min = read!(reader => (f16, f16))?;
-        let max = read!(reader => (f16, f16))?;
+        let min = read!(reader => (i16, i16))?;
+        let max = read!(reader => (i16, i16))?;
 
         if contours >= 0 {
             Self::read_simple_from(reader, contours, min, max)
@@ -246,66 +299,76 @@ impl Table {
 pub struct Ttf {
     reader: File,
     tables: HashMap<String, Table>,
-    glyf_offsets: Vec<u32>,
+    head: Head,
+    glyf_offsets: HashMap<u16, u32>,
     glyphs: HashMap<u16, Glyph>,
 }
 
 impl Ttf {
-    pub fn open(path: &Path) -> Result<Self> {
-        let mut obj = Self {
-            reader: File::open(path)?,
-            tables: HashMap::new(),
-            glyf_offsets: Vec::new(),
-            glyphs: HashMap::new(),
-        };
+    fn parse_tables<R: Read + Seek>(reader: &mut R) -> Result<HashMap<String, Table>> {
+        let mut tables = HashMap::<String, Table>::new();
 
-        obj.parse_tables()?;
-        obj.glyf_offsets.push(obj.tables["glyf"].offset);
+        reader.seek(SeekFrom::Start(4))?;
+        let count = read!(reader => u16)?;
 
-        Ok(obj)
-    }
-
-    fn parse_tables(&mut self) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(4))?;
-        let count = read!(&mut self.reader => u16)?;
-
-        self.reader.seek_relative(6)?;
+        reader.seek_relative(6)?;
 
         for _ in 0..count {
-            let table = Table::read_from(&mut self.reader)?;
-            self.tables
-                .insert(std::str::from_utf8(&table.tag)?.to_owned(), table);
+            let table = Table::read_from(reader)?;
+            tables.insert(std::str::from_utf8(&table.tag)?.to_owned(), table);
         }
 
-        Ok(())
+        Ok(tables)
     }
 
-    fn get_glyf_offset(&mut self, index: u16) -> Result<u32> {
-        if let Some(offset) = self.glyf_offsets.get(index as usize) {
-            return Ok(*offset);
-        }
+    pub fn open(path: &Path) -> Result<Self> {
+        let mut reader = File::open(path)?;
+        let tables = Self::parse_tables(&mut reader)?;
 
-        let offset = self.glyf_offsets.last().unwrap();
-        self.reader.seek(SeekFrom::Start(*offset as u64))?;
+        reader.seek(SeekFrom::Start(tables["head"].offset as u64))?;
+        let head = Head::read_from(&mut reader)?;
 
-        let skip = index as u32 - self.glyf_offsets.len() as u32;
-
-        for _ in 0..skip {
-            Glyph::read_from(&mut self.reader)?;
-
-            self.glyf_offsets
-                .push(self.reader.stream_position()? as u32);
-        }
-
-        Ok(self.glyf_offsets.last().unwrap().clone())
+        Ok(Self {
+            reader,
+            tables,
+            head,
+            glyf_offsets: HashMap::new(),
+            glyphs: HashMap::new(),
+        })
     }
 
-    pub fn glyph(&mut self, index: u16) -> Result<Glyph> {
+    fn glyf_offset(&mut self, index: u16) -> Result<u32> {
+        if let Some(offset) = self.glyf_offsets.get(&index) {
+            Ok(*offset)
+        } else {
+            let base = self.tables["loca"].offset;
+            let row_size = if self.head.index_to_loc_format != 0 {
+                2
+            } else {
+                1
+            };
+
+            self.reader
+                .seek(SeekFrom::Start(base as u64 + row_size * index as u64))?;
+
+            let offset = self.tables["glyf"].offset as u32
+                + if self.head.index_to_loc_format != 0 {
+                    read!(&mut self.reader => u32)?
+                } else {
+                    (read!(&mut self.reader => u16)? as u32) << 1
+                };
+
+            self.glyf_offsets.insert(index, offset);
+            Ok(offset)
+        }
+    }
+
+    pub fn glyph_raw(&mut self, index: u16) -> Result<Glyph> {
         if let Some(glyph) = self.glyphs.get(&index) {
             return Ok(glyph.clone());
         }
 
-        let offset = self.get_glyf_offset(index)?;
+        let offset = self.glyf_offset(index)?;
         self.reader.seek(SeekFrom::Start(offset as u64))?;
 
         let glyph = Glyph::read_from(&mut self.reader)?;
