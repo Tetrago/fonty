@@ -1,11 +1,12 @@
-use fonty::Ttf;
+use fonty::Glyph;
 use nalgebra::Matrix4;
 use std::env;
 
-mod letter;
-mod shader;
+mod common;
 
-pub use shader::Shader;
+use common::*;
+
+type Ttf = fonty::Ttf<std::fs::File>;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -16,7 +17,7 @@ fn load_ttf() -> Result<Ttf> {
         return Err("Invalid arguments".into());
     }
 
-    Ttf::open(std::path::Path::new(&args[1]))
+    Ok(fonty::open(std::path::Path::new(&args[1]))?)
 }
 
 fn main() -> Result<()> {
@@ -30,7 +31,7 @@ fn main() -> Result<()> {
     gl_attr.set_context_version(4, 0);
 
     let window = video
-        .window("Fonty", 1280, 720)
+        .window("Glyph", 1024, 1024)
         .opengl()
         .resizable()
         .build()?;
@@ -43,7 +44,14 @@ fn main() -> Result<()> {
         let height = height as f32;
         let factor = width.min(height);
 
-        Matrix4::new_orthographic(0.0, width / factor, 0.0, height / factor, -1.0, 1.0)
+        Matrix4::new_orthographic(
+            -width / factor / 2.0,
+            width / factor / 2.0,
+            -height / factor / 2.0,
+            height / factor / 2.0,
+            -1.0,
+            1.0,
+        )
     };
 
     let mut ortho = {
@@ -52,7 +60,17 @@ fn main() -> Result<()> {
     };
 
     let builder = letter::Builder::new();
-    let null = builder.of(ttf.glyph_raw(0)?)?;
+    let glyph = ttf.glyph_raw(0)?;
+    let letter = builder.of(glyph.clone())?;
+
+    let (x, y) = if let Glyph::Simple { min, max, .. } = glyph {
+        (
+            -((max.0 - min.0) as f32) / 2.0,
+            -((max.1 - min.1) as f32) / 2.0,
+        )
+    } else {
+        (0.0, 0.0)
+    };
 
     unsafe {
         let mut event_pump = sdl.event_pump()?;
@@ -76,7 +94,7 @@ fn main() -> Result<()> {
             }
 
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-            null.draw(0.0, 0.05, 0.0005, &ortho);
+            letter.draw(x * 0.0005, y * 0.0005, 0.0005, &ortho);
 
             window.gl_swap_window();
         }

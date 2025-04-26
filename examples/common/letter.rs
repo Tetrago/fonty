@@ -1,6 +1,6 @@
 use crate::Result;
-use crate::Shader;
-use crate::compile_shader;
+use crate::shader::Shader;
+use crate::shader::compile_shader;
 use fonty::Glyph;
 use nalgebra::Matrix4;
 use nalgebra::Translation3;
@@ -37,7 +37,7 @@ pub struct Letter {
 }
 
 impl Letter {
-    pub(self) fn new(shader: Rc<RefCell<Shader>>, glyph: Glyph) -> Result<Self> {
+    fn new(shader: Rc<RefCell<Shader>>, glyph: Glyph) -> Result<Self> {
         if let Glyph::Simple {
             end_points, points, ..
         } = glyph

@@ -114,7 +114,6 @@ impl Drop for Shader {
     }
 }
 
-#[macro_export]
 macro_rules! compile_shader {
     ($($ty:ident => $source:literal),+) => {
         {
@@ -123,3 +122,5 @@ macro_rules! compile_shader {
         }
     }
 }
+
+pub(crate) use compile_shader;
