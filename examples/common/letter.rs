@@ -45,9 +45,7 @@ pub struct Letter {
 impl Letter {
     fn new(shader: Rc<RefCell<Shader>>, glyph: Glyph) -> Result<Self> {
         if let Glyph::Simple {
-            end_points,
-            mut points,
-            ..
+            end_points, points, ..
         } = glyph
         {
             unsafe {
@@ -61,14 +59,13 @@ impl Letter {
 
                 gl::BindVertexArray(vao);
 
-                let mut vertices = Vec::<(f32, f32)>::new();
+                let mut vertices = Vec::<(f32, f32, i32)>::new();
                 let mut next_end = 0;
 
                 let mut loop_ends = Vec::<(usize, usize)>::with_capacity(end_points.len());
                 let mut last_end = 0;
 
-                // WARN empty character issue
-                let offset = if OutlineFlag::OnCurve.test(points[0].2) {
+                let offset = if points.is_empty() || OutlineFlag::OnCurve.test(points[0].2) {
                     0
                 } else {
                     1
@@ -76,7 +73,9 @@ impl Letter {
 
                 for i in 0..points.len() {
                     let (x, y, flags) = points[i];
-                    vertices.push((x as f32, y as f32));
+                    let on_curve = OutlineFlag::OnCurve.test(flags);
+
+                    vertices.push((x as f32, y as f32, if on_curve { 1 } else { 0 }));
 
                     let idx = if i as u16 == end_points[next_end] {
                         loop_ends.push((vertices.len() - 1, last_end));
@@ -96,8 +95,12 @@ impl Letter {
 
                     let (bx, by, f) = points[idx];
 
-                    if OutlineFlag::OnCurve.test(flags) == OutlineFlag::OnCurve.test(f) {
-                        let midpoint = ((x + bx) as f32 * 0.5, (y + by) as f32 * 0.5);
+                    if on_curve == OutlineFlag::OnCurve.test(f) {
+                        let midpoint = (
+                            (x + bx) as f32 * 0.5,
+                            (y + by) as f32 * 0.5,
+                            if on_curve { 1 } else { 0 },
+                        );
                         vertices.push(midpoint);
 
                         if last_end == vertices.len() - 1 {
@@ -110,10 +113,12 @@ impl Letter {
                     }
                 }
 
+                let stride = size_of::<f32>() * 2 + size_of::<i32>();
+
                 gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
                 gl::BufferData(
                     gl::ARRAY_BUFFER,
-                    (vertices.len() * size_of::<f32>() * 2) as isize,
+                    (vertices.len() * stride) as isize,
                     vertices.as_ptr() as *const _,
                     gl::STATIC_DRAW,
                 );
@@ -153,7 +158,17 @@ impl Letter {
                 );
 
                 gl::EnableVertexAttribArray(0);
-                gl::VertexAttribPointer(0, 2, gl::FLOAT, gl::FALSE, 0, ptr::null());
+                gl::VertexAttribPointer(0, 2, gl::FLOAT, gl::FALSE, stride as i32, ptr::null());
+                gl::EnableVertexAttribArray(1);
+                gl::VertexAttribPointer(
+                    1,
+                    1,
+                    gl::INT,
+                    gl::FALSE,
+                    stride as i32,
+                    (size_of::<f32>() * 2) as *const _,
+                );
+
                 gl::BindBuffer(gl::ARRAY_BUFFER, 0);
 
                 gl::BindVertexArray(0);
