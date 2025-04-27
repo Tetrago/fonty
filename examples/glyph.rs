@@ -6,22 +6,17 @@ mod common;
 
 use common::*;
 
-type Ttf = fonty::Ttf<std::fs::File>;
-
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-fn load_ttf() -> Result<Ttf> {
+fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 2 {
+    if args.len() != 3 || args[2].len() != 1 {
         return Err("Invalid arguments".into());
     }
 
-    Ok(fonty::open(std::path::Path::new(&args[1]))?)
-}
-
-fn main() -> Result<()> {
-    let mut ttf = load_ttf()?;
+    let mut ttf = fonty::open(std::path::Path::new(&args[1]))?;
+    let character = args[2].chars().next().unwrap();
 
     let sdl = sdl2::init()?;
     let video = sdl.video()?;
@@ -60,7 +55,7 @@ fn main() -> Result<()> {
     };
 
     let builder = letter::Builder::new();
-    let glyph = ttf.glyph_raw(0)?;
+    let glyph = ttf.glyph(character)?;
     let letter = builder.of(glyph.clone())?;
 
     let (x, y) = if let Glyph::Simple { min, max, .. } = glyph {

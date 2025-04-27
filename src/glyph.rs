@@ -214,9 +214,9 @@ impl<R: Read + Seek> GlyphCache<R> {
     fn offset_of(&self, index: u16) -> io::Result<u32> {
         let base = self.tables.borrow().loca();
         let row_size = if self.head.index_to_loc_format != 0 {
-            2
+            4
         } else {
-            1
+            2
         };
 
         let mut reader = self.reader.borrow_mut();
