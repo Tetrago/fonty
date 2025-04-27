@@ -115,7 +115,7 @@ impl Drop for Shader {
 }
 
 macro_rules! compile_shader {
-    ($($ty:ident => $source:literal),+) => {
+    ({$($ty:ident => $source:literal),+ $(,)?}) => {
         {
             let parts = [$((gl::$ty, include_bytes!($source) as &[u8])),+];
             Shader::new(&parts)
