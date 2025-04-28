@@ -1,14 +1,13 @@
 use crate::Head;
+use crate::Result;
 use crate::Tables;
 use crate::read;
 use crate::{ComponentFlag, ComponentFlags};
 use crate::{OutlineFlag, OutlineFlags};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io;
 use std::io::SeekFrom;
 use std::io::prelude::*;
-use std::rc::Rc;
 
 #[derive(Clone, Debug, Default)]
 pub struct Component {
@@ -39,7 +38,7 @@ impl Glyph {
         contours: i16,
         min: (i16, i16),
         max: (i16, i16),
-    ) -> io::Result<Self> {
+    ) -> Result<Self> {
         let mut end_points = Vec::<u16>::with_capacity(contours as usize);
 
         for _ in 0..contours {
@@ -123,7 +122,7 @@ impl Glyph {
         reader: &mut R,
         min: (i16, i16),
         max: (i16, i16),
-    ) -> io::Result<Self> {
+    ) -> Result<Self> {
         let mut flags = ComponentFlag::MoreComponents.mask();
         let mut components = Vec::<Component>::new();
 
@@ -181,7 +180,7 @@ impl Glyph {
         })
     }
 
-    pub fn read_from<R: Read + Seek>(reader: &mut R) -> io::Result<Self> {
+    pub fn read_from<R: Read + Seek>(reader: &mut R) -> Result<Self> {
         let contours = read!(reader => i16)?;
         let min = read!(reader => (i16, i16))?;
         let max = read!(reader => (i16, i16))?;
@@ -194,25 +193,26 @@ impl Glyph {
     }
 }
 
-pub struct GlyphCache<R: Read + Seek> {
-    reader: Rc<RefCell<R>>,
-    tables: Rc<RefCell<Tables>>,
+pub struct GlyphCache<'a, R: Read + Seek> {
+    reader: &'a RefCell<R>,
+    loca_offset: u32,
+    glyf_offset: u32,
     head: Head,
     cache: HashMap<u16, Glyph>,
 }
 
-impl<R: Read + Seek> GlyphCache<R> {
-    pub fn new(reader: Rc<RefCell<R>>, tables: Rc<RefCell<Tables>>, head: Head) -> Self {
+impl<'a, R: Read + Seek> GlyphCache<'a, R> {
+    pub fn new(reader: &'a RefCell<R>, tables: &Tables, head: Head) -> Self {
         Self {
             reader,
-            tables,
+            loca_offset: tables.loca(),
+            glyf_offset: tables.glyf(),
             head,
             cache: HashMap::new(),
         }
     }
 
-    fn offset_of(&self, index: u16) -> io::Result<u32> {
-        let base = self.tables.borrow().loca();
+    fn offset_of(&self, index: u16) -> Result<u32> {
         let row_size = if self.head.index_to_loc_format != 0 {
             4
         } else {
@@ -221,9 +221,11 @@ impl<R: Read + Seek> GlyphCache<R> {
 
         let mut reader = self.reader.borrow_mut();
 
-        reader.seek(SeekFrom::Start(base as u64 + row_size * index as u64))?;
+        reader.seek(SeekFrom::Start(
+            self.loca_offset as u64 + row_size * index as u64,
+        ))?;
 
-        Ok(self.tables.borrow().glyf() as u32
+        Ok(self.glyf_offset as u32
             + if self.head.index_to_loc_format != 0 {
                 read!(reader => u32)?
             } else {
@@ -231,7 +233,7 @@ impl<R: Read + Seek> GlyphCache<R> {
             })
     }
 
-    pub fn at(&mut self, index: u16) -> io::Result<Glyph> {
+    pub fn at(&mut self, index: u16) -> Result<Glyph> {
         if let Some(glyph) = self.cache.get(&index) {
             return Ok(glyph.clone());
         }

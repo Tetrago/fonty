@@ -3,13 +3,19 @@ name = "fonty"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+resolver = "2"
+members = ["gfx"]
+
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+thiserror = "2.0.12"
+
 [dev-dependencies]
+fonty-gfx = { path = "gfx" }
 sdl2 = "0.37.0"
-gl = "0.14.0"
-nalgebra = "0.33.2"
 
 [[example]]
 name = "glyph"

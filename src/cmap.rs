@@ -1,12 +1,12 @@
+use crate::Error;
+use crate::Result;
 use crate::Tables;
 use crate::read;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io;
 use std::io::SeekFrom;
 use std::io::prelude::*;
 use std::ops::RangeInclusive;
-use std::rc::Rc;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -26,7 +26,7 @@ enum Format {
 }
 
 impl Format {
-    pub fn read_from<R: Read + Seek>(reader: &mut R) -> io::Result<Self> {
+    pub fn read_from<R: Read + Seek>(reader: &mut R) -> Result<Self> {
         let format = read!(reader => u16)?;
 
         match format {
@@ -66,14 +66,11 @@ impl Format {
                     id_range_offsets_offset,
                 })
             }
-            _ => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "Unsupported format",
-            )),
+            _ => Err(Error::UnsupportedCmapFormat(format)),
         }
     }
 
-    pub fn resolve<R: Read + Seek>(&self, reader: &mut R, c: char) -> io::Result<u16> {
+    pub fn resolve<R: Read + Seek>(&self, reader: &mut R, c: char) -> Result<u16> {
         match self {
             Format::Format4 {
                 code_ranges,
@@ -104,24 +101,21 @@ impl Format {
                         })
                     }
                 } else {
-                    Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "Could not find codepoint",
-                    ))
+                    Err(Error::CodepointNotInCmap(c))
                 }
             }
         }
     }
 }
 
-pub struct Cmap<R: Read + Seek> {
-    reader: Rc<RefCell<R>>,
+pub struct Cmap<'a, R: Read + Seek> {
+    reader: &'a RefCell<R>,
     format: Format,
     cache: HashMap<char, u16>,
 }
 
-impl<R: Read + Seek> Cmap<R> {
-    pub fn new(reader: Rc<RefCell<R>>, tables: &Tables) -> io::Result<Self> {
+impl<'a, R: Read + Seek> Cmap<'a, R> {
+    pub fn new(reader: &'a RefCell<R>, tables: &Tables) -> Result<Self> {
         if let Some(format) = {
             let mut reader = reader.borrow_mut();
 
@@ -158,14 +152,11 @@ impl<R: Read + Seek> Cmap<R> {
                 cache: HashMap::new(),
             })
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Missing suitable cmap table",
-            ))
+            Err(Error::NoSuitableCmapFormat)
         }
     }
 
-    pub fn resolve(&mut self, c: char) -> io::Result<u16> {
+    pub fn resolve(&mut self, c: char) -> Result<u16> {
         if let Some(index) = self.cache.get(&c) {
             Ok(*index)
         } else {

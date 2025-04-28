@@ -1,52 +1,64 @@
+use crate::Error;
 use crate::Result;
-use crate::shader::Shader;
-use crate::shader::compile_shader;
+use crate::factory;
+use crate::outline::Instance;
 use fonty::Glyph;
 use fonty::OutlineFlag;
+use fonty::Ttf;
 use nalgebra::Matrix4;
 use nalgebra::Translation3;
 use std::cell::RefCell;
-use std::mem::size_of;
 use std::ptr;
 use std::rc::Rc;
 
-pub struct Builder {
-    shader: Rc<RefCell<Shader>>,
-}
-
-impl Builder {
-    pub fn new() -> Self {
-        Self {
-            shader: Rc::new(RefCell::new(
-                compile_shader!({
-                    VERTEX_SHADER => "letter_vert.glsl",
-                    FRAGMENT_SHADER => "letter_frag.glsl",
-                    TESS_CONTROL_SHADER => "letter_control.glsl",
-                    TESS_EVALUATION_SHADER => "letter_eval.glsl",
-                })
-                .unwrap(),
-            )),
-        }
-    }
-
-    pub fn of(&self, glyph: Glyph) -> Result<Letter> {
-        Letter::new(self.shader.clone(), glyph)
-    }
-}
-
-pub struct Letter {
-    shader: Rc<RefCell<Shader>>,
+pub struct Shape {
+    instance: Rc<RefCell<Instance>>,
     vao: u32,
     vbo: u32,
     ibo: u32,
     count: i32,
 }
 
-impl Letter {
-    fn new(shader: Rc<RefCell<Shader>>, glyph: Glyph) -> Result<Self> {
+impl Shape {
+    pub fn draw(&self, x: f32, y: f32, scale: f32, matrix: &Matrix4<f32>) {
+        let matrix =
+            matrix * Translation3::new(x, y, 0.0).to_homogeneous() * Matrix4::new_scaling(scale);
+
+        unsafe {
+            let shader = &mut self.instance.borrow_mut().shader;
+
+            gl::UseProgram(shader.handle());
+
+            gl::UniformMatrix4fv(
+                shader.get_uniform_location("u_Mvp"),
+                1,
+                gl::FALSE,
+                matrix.as_slice().as_ptr(),
+            );
+
+            gl::BindVertexArray(self.vao);
+            gl::PatchParameteri(gl::PATCH_VERTICES, 3);
+            gl::DrawElements(gl::PATCHES, self.count, gl::UNSIGNED_INT, ptr::null());
+            gl::BindVertexArray(0);
+        }
+    }
+}
+
+impl Drop for Shape {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteBuffers(1, &mut self.ibo);
+            gl::DeleteBuffers(1, &mut self.vbo);
+            gl::DeleteVertexArrays(1, &mut self.vao);
+        }
+    }
+}
+
+impl factory::Shape<Instance> for Shape {
+    fn new(ttf: &mut dyn Ttf, instance: Rc<RefCell<Instance>>, c: char) -> Result<Self> {
         if let Glyph::Simple {
             end_points, points, ..
-        } = glyph
+        } = ttf.glyph(c)?
         {
             unsafe {
                 let mut vao = 0u32;
@@ -143,7 +155,7 @@ impl Letter {
                     } else {
                         indices.push(i as u32);
                         indices.push(i as u32 + 1);
-                        indices.push(i as u32 + 2);
+                        indices.push((i as u32 + 2) % vertices.len() as u32);
                     }
 
                     i += 2;
@@ -175,7 +187,7 @@ impl Letter {
                 gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
 
                 Ok(Self {
-                    shader,
+                    instance,
                     vao,
                     vbo,
                     ibo,
@@ -183,40 +195,7 @@ impl Letter {
                 })
             }
         } else {
-            Err("Unsupported glyph".into())
-        }
-    }
-
-    pub fn draw(&self, x: f32, y: f32, scale: f32, matrix: &Matrix4<f32>) {
-        let matrix =
-            matrix * Translation3::new(x, y, 0.0).to_homogeneous() * Matrix4::new_scaling(scale);
-
-        unsafe {
-            let mut shader = self.shader.borrow_mut();
-
-            gl::UseProgram(shader.handle());
-
-            gl::UniformMatrix4fv(
-                shader.get_uniform_location("u_Mvp"),
-                1,
-                gl::FALSE,
-                matrix.as_slice().as_ptr(),
-            );
-
-            gl::BindVertexArray(self.vao);
-            gl::PatchParameteri(gl::PATCH_VERTICES, 3);
-            gl::DrawElements(gl::PATCHES, self.count, gl::UNSIGNED_INT, ptr::null());
-            gl::BindVertexArray(0);
-        }
-    }
-}
-
-impl Drop for Letter {
-    fn drop(&mut self) {
-        unsafe {
-            gl::DeleteBuffers(1, &mut self.ibo);
-            gl::DeleteBuffers(1, &mut self.vbo);
-            gl::DeleteVertexArrays(1, &mut self.vao);
+            Err(Error::UnsupportedFeature)
         }
     }
 }

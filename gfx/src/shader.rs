@@ -1,3 +1,4 @@
+use crate::Error;
 use crate::Result;
 use std::collections::HashMap;
 
@@ -27,7 +28,9 @@ impl Part {
                 log.truncate(length as usize);
 
                 gl::DeleteShader(handle);
-                Err(String::from_utf8(log)?.into())
+                Err(Error::ShaderCompilationFailed(
+                    String::from_utf8(log).unwrap(),
+                ))
             } else {
                 Ok(Part { handle })
             }
@@ -77,7 +80,9 @@ impl Shader {
                 log.truncate(length as usize);
 
                 gl::DeleteProgram(handle);
-                Err(String::from_utf8(log)?.into())
+                Err(Error::ShaderCompilationFailed(
+                    String::from_utf8(log).unwrap(),
+                ))
             } else {
                 Ok(Shader {
                     handle,

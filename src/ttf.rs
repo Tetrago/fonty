@@ -2,43 +2,80 @@ use crate::Cmap;
 use crate::Glyph;
 use crate::GlyphCache;
 use crate::Head;
+use crate::Result;
 use crate::Tables;
 use std::cell::RefCell;
 use std::fs::File;
-use std::io;
 use std::io::SeekFrom;
 use std::io::prelude::*;
 use std::path::Path;
-use std::rc::Rc;
+use std::pin::Pin;
 
-pub struct AbstractTtf<R: Read + Seek> {
-    cmap: Cmap<R>,
-    glyph_cache: GlyphCache<R>,
+pub trait Ttf {
+    fn glyph(&mut self, c: char) -> Result<Glyph>;
+    fn glyph_at(&mut self, index: u16) -> Result<Glyph>;
 }
 
-impl<R: Read + Seek> AbstractTtf<R> {
-    pub fn new(mut reader: R) -> io::Result<Self> {
-        let tables = Rc::new(RefCell::new(Tables::read_from(&mut reader)?));
+pub struct AbstractTtf<'a, R: Read + Seek> {
+    cmap: Cmap<'a, R>,
+    glyph_cache: GlyphCache<'a, R>,
+}
 
-        reader.seek(SeekFrom::Start(tables.borrow().head() as u64))?;
-        let head = Head::read_from(&mut reader)?;
+impl<'a, R: Read + Seek> AbstractTtf<'a, R> {
+    pub fn new(reader: &'a RefCell<R>) -> Result<Self> {
+        let tables = Tables::read_from(&mut *reader.borrow_mut())?;
 
-        let reader = Rc::new(RefCell::new(reader));
+        reader
+            .borrow_mut()
+            .seek(SeekFrom::Start(tables.head() as u64))?;
+        let head = Head::read_from(&mut *reader.borrow_mut())?;
 
         Ok(Self {
-            cmap: { Cmap::new(reader.clone(), &*tables.borrow())? },
-            glyph_cache: GlyphCache::new(reader, tables, head),
+            cmap: { Cmap::new(reader, &tables)? },
+            glyph_cache: GlyphCache::new(reader, &tables, head),
         })
-    }
-
-    pub fn glyph(&mut self, c: char) -> io::Result<Glyph> {
-        self.glyph_cache.at(self.cmap.resolve(c)?)
     }
 }
 
-pub type Ttf = AbstractTtf<File>;
+impl<'a, R: Read + Seek> Ttf for AbstractTtf<'a, R> {
+    fn glyph(&mut self, c: char) -> Result<Glyph> {
+        self.glyph_cache.at(self.cmap.resolve(c)?)
+    }
 
-pub fn open(path: &Path) -> io::Result<Ttf> {
-    let reader = File::open(path)?;
-    Ttf::new(reader)
+    fn glyph_at(&mut self, index: u16) -> Result<Glyph> {
+        self.glyph_cache.at(index)
+    }
+}
+
+pub struct OwnedTtf<'a, R: Read + Seek> {
+    ttf: AbstractTtf<'a, R>,
+    _reader: Pin<Box<RefCell<R>>>,
+}
+
+impl<'a, R: Read + Seek> OwnedTtf<'a, R> {
+    pub fn new(reader: R) -> Result<Self> {
+        let reader = Box::pin(RefCell::new(reader));
+
+        let ttf = AbstractTtf::new(unsafe { &*(reader.as_ref().get_ref() as *const RefCell<_>) })?;
+
+        Ok(OwnedTtf {
+            ttf,
+            _reader: reader,
+        })
+    }
+}
+
+impl<'a, R: Read + Seek> Ttf for OwnedTtf<'a, R> {
+    fn glyph(&mut self, c: char) -> Result<Glyph> {
+        self.ttf.glyph(c)
+    }
+
+    fn glyph_at(&mut self, index: u16) -> Result<Glyph> {
+        self.ttf.glyph_at(index)
+    }
+}
+
+pub fn open(path: &Path) -> Result<OwnedTtf<File>> {
+    let file = File::open(path)?;
+    OwnedTtf::new(file)
 }

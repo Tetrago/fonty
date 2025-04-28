@@ -1,10 +1,9 @@
 use fonty::Glyph;
+use fonty::prelude::*;
+use fonty_gfx::*;
 use nalgebra::Matrix4;
+use std::cell::RefCell;
 use std::env;
-
-mod common;
-
-use common::*;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -15,7 +14,7 @@ fn main() -> Result<()> {
         return Err("Invalid arguments".into());
     }
 
-    let mut ttf = fonty::open(std::path::Path::new(&args[1]))?;
+    let ttf = RefCell::new(fonty::open(&std::path::Path::new(&args[1]))?);
     let character = args[2].chars().next().unwrap();
 
     let sdl = sdl2::init()?;
@@ -54,9 +53,9 @@ fn main() -> Result<()> {
         get_ortho(width as i32, height as i32)
     };
 
-    let builder = letter::Builder::new();
-    let glyph = ttf.glyph(character)?;
-    let letter = builder.of(glyph.clone())?;
+    let glyph = ttf.borrow_mut().glyph(character)?;
+    let mut factory = OutlineFactory::new(&ttf);
+    let shape = factory.get(character)?;
 
     let (x, y) = if let Glyph::Simple { min, max, .. } = glyph {
         (
@@ -89,7 +88,7 @@ fn main() -> Result<()> {
             }
 
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-            letter.draw(x * 0.0005, y * 0.0005, 0.0005, &ortho);
+            shape.borrow().draw(x * 0.0005, y * 0.0005, 0.0005, &ortho);
 
             window.gl_swap_window();
         }

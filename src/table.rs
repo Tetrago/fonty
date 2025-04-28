@@ -1,6 +1,7 @@
+use crate::Error;
+use crate::Result;
 use crate::read;
 use std::collections::HashMap;
-use std::io;
 use std::io::SeekFrom;
 use std::io::prelude::*;
 
@@ -14,7 +15,7 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn read_from<R: Read>(reader: &mut R) -> io::Result<Self> {
+    pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         let mut tag = [0u8; 4];
         reader.read_exact(&mut tag)?;
 
@@ -44,7 +45,7 @@ macro_rules! tables {
 }
 
 impl Tables {
-    pub fn read_from<R: Read + Seek>(reader: &mut R) -> io::Result<Self> {
+    pub fn read_from<R: Read + Seek>(reader: &mut R) -> Result<Self> {
         let mut tables = HashMap::<String, Table>::new();
 
         reader.seek(SeekFrom::Start(4))?;
@@ -56,7 +57,7 @@ impl Tables {
             let table = Table::read_from(reader)?;
             tables.insert(
                 std::str::from_utf8(&table.tag)
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+                    .map_err(|_| Error::InvalidSubtable(table.tag))?
                     .to_owned(),
                 table,
             );
