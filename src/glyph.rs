@@ -1,3 +1,4 @@
+use crate::F2d14;
 use crate::Head;
 use crate::Result;
 use crate::Tables;
@@ -14,7 +15,56 @@ pub struct Component {
     pub flags: ComponentFlags,
     pub index: u16,
     pub offset: (i32, i32),
-    pub transform: (i16, i16, i16, i16),
+    pub transform: (f32, f32, f32, f32),
+}
+
+impl Component {
+    pub fn factors(&self) -> (f32, f32) {
+        let (a, b, c, d) = self.transform;
+
+        let m0 = a.abs().max(b.abs());
+        let n0 = c.abs().max(d.abs());
+
+        let m = if (a.abs() - c.abs()).abs() <= 33.0 / 65536.0 {
+            2.0 * m0
+        } else {
+            m0
+        };
+
+        let n = if (b.abs() - d.abs()).abs() <= 33.0 / 65536.0 {
+            2.0 * n0
+        } else {
+            n0
+        };
+
+        (m, n)
+    }
+
+    pub fn transform(&self, x: f32, y: f32, dx: f32, dy: f32) -> (f32, f32) {
+        let (a, b, c, d) = self.transform;
+        let (m, n) = self.factors();
+
+        let x = a / m * x + c / m * y + dx;
+        let y = b / n * x + d / n * y + dy;
+
+        (x, y)
+    }
+
+    pub fn scale(&self, x: f32, y: f32) -> (f32, f32) {
+        self.transform(x, y, 0.0, 0.0)
+    }
+
+    pub fn subtract(&self, local_point: (f32, f32), global_point: (f32, f32)) -> (f32, f32) {
+        let (m, n) = self.factors();
+
+        let (ax, ay) = self.scale(local_point.0, local_point.1);
+        let (bx, by) = global_point;
+
+        let x = (bx - ax) / m;
+        let y = (by - ay) / n;
+
+        (x, y)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -149,15 +199,15 @@ impl Glyph {
                 }
             };
             let transform = if ComponentFlag::WeHaveATwoByTwo.test(flags) {
-                read!(reader => (i16, i16, i16, i16))?
+                read!(reader => (F2d14, F2d14, F2d14, F2d14))?
             } else if ComponentFlag::WeHaveAnXAndYScale.test(flags) {
-                let (a, b) = read!(reader => (i16, i16))?;
-                (a, 0, 0, b)
+                let (a, b) = read!(reader => (F2d14, F2d14))?;
+                (a, 1.0, 1.0, b)
             } else if ComponentFlag::WeHaveAScale.test(flags) {
-                let scale = read!(reader => i16)?;
-                (scale, 0, 0, scale)
+                let scale = read!(reader => F2d14)?;
+                (scale, 1.0, 1.0, scale)
             } else {
-                (1, 0, 0, 1)
+                (1.0, 0.0, 0.0, 1.0)
             };
 
             if ComponentFlag::WeHaveInstructions.test(flags) {

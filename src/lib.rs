@@ -12,7 +12,7 @@ pub use error::*;
 pub use flag::*;
 pub use glyph::*;
 use head::*;
-use read::read;
+use read::*;
 use table::*;
 pub use ttf::*;
 

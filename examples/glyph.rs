@@ -39,10 +39,10 @@ fn main() -> Result<()> {
         let factor = width.min(height);
 
         Matrix4::new_orthographic(
-            -width / factor / 2.0,
-            width / factor / 2.0,
-            -height / factor / 2.0,
-            height / factor / 2.0,
+            0.0,
+            width / factor,
+            -height / factor / 4.0,
+            height / factor / 4.0 * 3.0,
             -1.0,
             1.0,
         )
@@ -56,15 +56,6 @@ fn main() -> Result<()> {
     let glyph = ttf.borrow_mut().glyph(character)?;
     let mut factory = OutlineFactory::new(&ttf);
     let shape = factory.get(character)?;
-
-    let (x, y) = if let Glyph::Simple { min, max, .. } = glyph {
-        (
-            -((max.0 - min.0) as f32) / 2.0,
-            -((max.1 - min.1) as f32) / 2.0,
-        )
-    } else {
-        (0.0, 0.0)
-    };
 
     unsafe {
         let mut event_pump = sdl.event_pump()?;
@@ -88,7 +79,7 @@ fn main() -> Result<()> {
             }
 
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-            shape.borrow().draw(x * 0.0005, y * 0.0005, 0.0005, &ortho);
+            shape.borrow().draw(0.0, 0.0, 0.0005, &ortho);
 
             window.gl_swap_window();
         }
