@@ -10,6 +10,6 @@ void main() {
     if (gl_InvocationID == 0)
     {
         gl_TessLevelOuter[0] = 1.0;
-        gl_TessLevelOuter[1] = v_Curve[1] != 0 ? 1.0 : 8.0;
+        gl_TessLevelOuter[1] = v_Curve[1] != 0 ? 1.0 : 16.0;
     }
 }
