@@ -14,9 +14,11 @@ use std::pin::Pin;
 pub trait Ttf {
     fn glyph(&mut self, c: char) -> Result<Glyph>;
     fn glyph_at(&mut self, index: u16) -> Result<Glyph>;
+    fn scale(&self) -> u16;
 }
 
 pub struct AbstractTtf<'a, R: Read + Seek> {
+    head: Head,
     cmap: Cmap<'a, R>,
     glyph_cache: GlyphCache<'a, R>,
 }
@@ -31,6 +33,7 @@ impl<'a, R: Read + Seek> AbstractTtf<'a, R> {
         let head = Head::read_from(&mut *reader.borrow_mut())?;
 
         Ok(Self {
+            head: head.clone(),
             cmap: { Cmap::new(reader, &tables)? },
             glyph_cache: GlyphCache::new(reader, &tables, head),
         })
@@ -44,6 +47,10 @@ impl<'a, R: Read + Seek> Ttf for AbstractTtf<'a, R> {
 
     fn glyph_at(&mut self, index: u16) -> Result<Glyph> {
         self.glyph_cache.at(index)
+    }
+
+    fn scale(&self) -> u16 {
+        self.head.units_per_em
     }
 }
 
@@ -72,6 +79,10 @@ impl<'a, R: Read + Seek> Ttf for OwnedTtf<'a, R> {
 
     fn glyph_at(&mut self, index: u16) -> Result<Glyph> {
         self.ttf.glyph_at(index)
+    }
+
+    fn scale(&self) -> u16 {
+        self.ttf.scale()
     }
 }
 

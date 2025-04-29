@@ -2,11 +2,6 @@
 
 layout(isolines, equal_spacing) in;
 
-vec4 lerp(vec4 from, vec4 to, float u)
-{
-    return from * (1 - u) + to * u;
-}
-
 void main()
 {
     float u = gl_TessCoord.x;
@@ -15,8 +10,5 @@ void main()
     vec4 b = gl_in[1].gl_Position;
     vec4 c = gl_in[2].gl_Position;
 
-    vec4 d = lerp(a, b, u);
-    vec4 e = lerp(b, c, u);
-
-    gl_Position = lerp(d, e, u);
+    gl_Position = (a * (1 - u) + 2 * b * u) * (1 - u) + c * u * u;
 }

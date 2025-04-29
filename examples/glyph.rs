@@ -73,7 +73,6 @@ fn main() -> Result<()> {
     };
 
     unsafe {
-        gl::LineWidth(2.0);
         gl::Enable(gl::MULTISAMPLE);
 
         let mut event_pump = sdl.event_pump()?;
@@ -97,7 +96,7 @@ fn main() -> Result<()> {
             }
 
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-            shape.borrow().draw(&ortho);
+            shape.borrow().draw((0.6, 0.6, 1.0, 1.0), 0.01, &ortho);
 
             window.gl_swap_window();
         }

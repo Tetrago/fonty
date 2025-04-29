@@ -16,6 +16,7 @@ impl factory::Instance for Instance {
                 FRAGMENT_SHADER => "frag.glsl",
                 TESS_CONTROL_SHADER => "ctrl.glsl",
                 TESS_EVALUATION_SHADER => "eval.glsl",
+                GEOMETRY_SHADER => "geom.glsl",
             })
             .unwrap(),
         }

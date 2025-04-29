@@ -22,7 +22,12 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn draw(&self, matrix: &Matrix4<f32>) {
+    pub fn draw(
+        &self,
+        stroke_color: (f32, f32, f32, f32),
+        stroke_size: f32,
+        matrix: &Matrix4<f32>,
+    ) {
         unsafe {
             let shader = &mut self.instance.borrow_mut().shader;
 
@@ -34,6 +39,14 @@ impl Shape {
                 gl::FALSE,
                 matrix.as_slice().as_ptr(),
             );
+
+            gl::Uniform4fv(
+                shader.get_uniform_location("u_Color"),
+                1,
+                &stroke_color as *const _ as *const _,
+            );
+
+            gl::Uniform1f(shader.get_uniform_location("u_Size"), stroke_size);
 
             gl::PatchParameteri(gl::PATCH_VERTICES, 3);
             gl::BindVertexArray(self.vao);
@@ -114,10 +127,11 @@ fn build_glyph(ttf: &mut dyn Ttf, glyph: &Glyph) -> Result<(Vec<(f32, f32, i32)>
                 let (v, i) = build_mesh(&points[start..=end as usize]);
                 start = end as usize + 1;
 
-                let i: Vec<u32> = i.into_iter().map(|i| i + vertices.len() as u32).collect();
-
-                indices.extend(i);
-                vertices.extend(v);
+                indices.extend(i.iter().map(|i| i + vertices.len() as u32));
+                vertices.extend(
+                    v.into_iter()
+                        .map(|(x, y, c)| (x * ttf.scale() as f32, y * ttf.scale() as f32, c)),
+                );
             }
 
             Ok((vertices, indices))
