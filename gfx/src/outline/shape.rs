@@ -8,7 +8,6 @@ use fonty::OutlineFlag;
 use fonty::OutlineFlags;
 use fonty::Ttf;
 use nalgebra::Matrix4;
-use nalgebra::Translation3;
 use std::cell::RefCell;
 use std::ptr;
 use std::rc::Rc;
@@ -19,13 +18,11 @@ pub struct Shape {
     vbo: u32,
     ibo: u32,
     count: i32,
+    bounding_box: (f32, f32, f32, f32),
 }
 
 impl Shape {
-    pub fn draw(&self, x: f32, y: f32, scale: f32, matrix: &Matrix4<f32>) {
-        let matrix =
-            matrix * Translation3::new(x, y, 0.0).to_homogeneous() * Matrix4::new_scaling(scale);
-
+    pub fn draw(&self, matrix: &Matrix4<f32>) {
         unsafe {
             let shader = &mut self.instance.borrow_mut().shader;
 
@@ -38,11 +35,22 @@ impl Shape {
                 matrix.as_slice().as_ptr(),
             );
 
-            gl::BindVertexArray(self.vao);
             gl::PatchParameteri(gl::PATCH_VERTICES, 3);
+            gl::BindVertexArray(self.vao);
             gl::DrawElements(gl::PATCHES, self.count, gl::UNSIGNED_INT, ptr::null());
             gl::BindVertexArray(0);
         }
+    }
+
+    pub fn bounding_box(&self) -> (f32, f32, f32, f32) {
+        self.bounding_box
+    }
+
+    pub fn size(&self) -> (f32, f32) {
+        (
+            self.bounding_box.2 - self.bounding_box.0,
+            self.bounding_box.3 - self.bounding_box.1,
+        )
     }
 }
 
@@ -167,6 +175,21 @@ impl factory::Shape<Instance> for Shape {
         let (vertices, indices) = build_glyph(ttf, &glyph)?;
         let stride = size_of::<f32>() * 2 + size_of::<i32>();
 
+        let bounding_box = {
+            let mut min = (0.0, 0.0);
+            let mut max = (0.0, 0.0);
+
+            for vertex in &vertices {
+                min.0 = f32::min(min.0, vertex.0);
+                min.1 = f32::min(min.1, vertex.1);
+
+                max.0 = f32::max(max.0, vertex.0);
+                max.1 = f32::max(max.1, vertex.1);
+            }
+
+            (min.0, min.1, max.0, max.1)
+        };
+
         unsafe {
             let mut vao = 0u32;
             let mut vbo = 0u32;
@@ -217,6 +240,7 @@ impl factory::Shape<Instance> for Shape {
                 vbo,
                 ibo,
                 count: indices.len() as i32,
+                bounding_box,
             })
         }
     }
