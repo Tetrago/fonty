@@ -23,6 +23,7 @@ fn main() -> Result<()> {
     let gl_attr = video.gl_attr();
     gl_attr.set_context_profile(sdl2::video::GLProfile::Core);
     gl_attr.set_context_version(4, 0);
+    gl_attr.set_multisample_samples(4);
 
     let window = video
         .window("Glyph", 1024, 1024)
@@ -44,7 +45,7 @@ fn main() -> Result<()> {
         let height = height as f32;
 
         let factor = width.max(height) / width.min(height);
-        let padding = size.0.min(size.1) * 0.02;
+        let padding = width.min(height) * 0.02;
 
         let x_scale = width / size.0;
         let y_scale = height / size.1;
@@ -72,6 +73,9 @@ fn main() -> Result<()> {
     };
 
     unsafe {
+        gl::LineWidth(2.0);
+        gl::Enable(gl::MULTISAMPLE);
+
         let mut event_pump = sdl.event_pump()?;
         'main: loop {
             for event in event_pump.poll_iter() {
@@ -93,7 +97,6 @@ fn main() -> Result<()> {
             }
 
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-            gl::LineWidth(2.0);
             shape.borrow().draw(&ortho);
 
             window.gl_swap_window();
